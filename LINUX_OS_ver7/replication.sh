@@ -70,17 +70,20 @@ function arch()
 	while
 	[ "$E" == "" ]; 
 	do
-	        T=`ssh -T -p $SSHPORT root@$IP su - $MST_SVC_USR -c \"find $MST_ARCH_DIR ! -newer $R &>/dev/null\"`
+		T=`ssh -T -p $SSHPORT root@$IP su - $MST_SVC_USR -c \"find $MST_ARCH_DIR ! -newer $R &>/dev/null\"`
 		T=`echo $T | sed "s/$TEMP/$(date +%Y%m%d%H%M%S)/"`
 	        R=`echo $T | rev | cut -d' ' -f1 | rev`
 	        ssh -T -p $SSHPORT root@$IP "chmod 700 -R $MST_ARCH_DIR"
 	        Y=`echo "mv $T $MST_ARCH_DIR/$TEMP"`
 	        ssh -T -p $SSHPORT root@$IP su - $MST_SVC_USR -c \" \`echo $Y\` &>/dev/null \"
 		echo "Copy WAL file that created after pg_basebackup end, to restore directory" &>>$LOG_FILE
-	        scp -P $SSHPORT root@$IP:$MST_ARCH_DIR/0000* $SLV_ARCH_DIR/  &>>$LOG_FILE
-		chmod -R 600 $SLV_ARCH_DIR/*
+	    scp -P $SSHPORT root@$IP:$MST_ARCH_DIR/0000* $SLV_ARCH_DIR/  &>>$LOG_FILE
+		ls $SLV_ARCH_DIR/* &>/dev/null
+		if [ "$?" = "0" ]; then
+			chmod -R 600 $SLV_ARCH_DIR/*
+		fi
 		chown -R $SLV_SVC_USR. $SLV_ARCH_DIR
-	        E=`ps -ef | grep post | grep startup` &>/dev/null
+		E=`ps -ef | grep post | grep startup` &>/dev/null
 	done
         ssh -T -p $SSHPORT root@$IP su - $MST_SVC_USR -c \"mv $MST_ARCH_DIR/$TEMP/* $MST_ARCH_DIR/ &>/dev/null \"
         ssh -T -p $SSHPORT root@$IP "chmod \-R 600 $MST_ARCH_DIR/*"
@@ -111,7 +114,7 @@ printf "\n" &>>$LOG_FILE
 ########################################---MASTER DB SERVER OWNER & AUTHORIZATION CHECK---#########################################
 
 MST_SVC_USR=`ssh -T -p $SSHPORT root@$1 ls -ld $MST_DATA_DIR | awk '{print $3}'`
-MST_ENGN_HOME=`ssh -T -p $SSHPORT root@$1 ps -ef | grep postgres | grep -w -v postgres: | grep bin |grep -w 1 | awk '{print $8}'`
+MST_ENGN_HOME=`ssh -T -p $SSHPORT root@$1 ps -ef | grep postgres | grep -w -v postgres: | grep bin |grep -w 1 | awk '{print $NF}'`
 MST_ENGN_HOME=`echo ${MST_ENGN_HOME%/bin*}`
 
 echo "Varification Master DBMS' owner and authorization..." &>>$LOG_FILE
@@ -270,7 +273,7 @@ if [ $? -ne 0 ]; then
 	byebye $LOG_FILE
 fi
 if [ "$P1" == "n" -a "$P2" == "n" ]; then
-	ssh -T -p $SSHPORT root@$1 su - $MST_SVC_USR -c \"echo 'export PGPORT=$MST_PORT' \>\> .bash_profile\"
+	ssh -T -p $SSHPORT root@$1 su - $MST_SVC_USR -c \"echo 'export PGPORT='"$MST_PORT"'' \>\> .bash_profile\"
 fi
 echo "MST_PORT parameter is $MST_PORT.....ok" &>>$LOG_FILE
 
@@ -317,10 +320,10 @@ printf "\n" &>>$LOG_FILE
 echo "Create DB replication User..." &>>$LOG_FILE
 ssh -T -p $SSHPORT root@$1 su - $MST_SVC_USR -c \"createuser -l --replication -p $MST_PORT -U $MST_DB_SPR_USR $MST_REP_USR\" &>>$LOG_FILE
 if [[ $? -eq 0 ]];then
-        echo "Create New Replication DB user OK.....ok" &>>$LOG_FILE
+    echo "Create New Replication DB user OK.....ok" &>>$LOG_FILE
 	ssh -T -p $SSHPORT root@$1 su - $MST_SVC_USR -c \"psql -p $MST_PORT -U $MST_DB_SPR_USR -c "'alter user $MST_REP_USR password '\''edb'\'';'"\" &>/dev/null
 else
-        echo "There is Imossible Create replication user....." &>>$LOG_FILE
+    echo "There is Imossible Create replication user....." &>>$LOG_FILE
 	ssh -T -p $SSHPORT root@$1 su - $MST_SVC_USR -c \"psql -p $MST_PORT -U $MST_DB_SPR_USR -c "'alter user $MST_REP_USR with replication login;'"\" &>/dev/null 
 	if [ $? -ne 0 ]; then
 		echo "There is impossible create user as superuser please check your DB super user parameter \"MST_DB_SPR_USR\" in parameter.sh.....fail" &>>$LOG_FILE
@@ -349,6 +352,14 @@ printf "\n" &>>$LOG_FILE
 #####################################-------------DB connection verification------------#######################################
 
 echo "Testing connect to DB server...." &>>$LOG_FILE
+VRSN=`su - $SLV_SVC_USR -c "psql -V"|awk '{print $NF}'|awk -F '.' '{print $1}'`
+if [ "9" -gt "$VRSN" ]; then
+	REXL=xlog
+	LOGD=pg_log
+else
+	REXL=wal
+	LOGD=log
+fi
 su - $SLV_SVC_USR -c "psql -U $MST_REP_USR -h $1 -p $MST_PORT -c 'select version();'&>/dev/null"
 if [[ $? -ne 0 ]];then
         echo "Can't not connect with MASTER DBserver" &>>$LOG_FILE
@@ -370,14 +381,14 @@ printf "\n" &>>$LOG_FILE
 ########################################---------MST_WAL_DIR parameter Extract----------########################################
 
 echo "Master Database Server's WAL directory check..." &>>$LOG_FILE
-W=`ssh -T -p $SSHPORT root@$1 su - $MST_SVC_USR -c \"ls -ld $MST_DATA_DIR/pg_xlog \" |cut -c 1`
+W=`ssh -T -p $SSHPORT root@$1 su - $MST_SVC_USR -c \"ls -ld $MST_DATA_DIR/pg_${REXL} \" |cut -c 1`
 if [ "$W" == "d" ]; then
-        MST_WAL_DIR=`ssh -T -p $SSHPORT root@$1 su - $MST_SVS_USR -c \"cd $MST_DATA_DIR/pg_xlog \&\& pwd \"`
+        MST_WAL_DIR=`ssh -T -p $SSHPORT root@$1 su - $MST_SVS_USR -c \"cd $MST_DATA_DIR/pg_${REXL} \&\& pwd \"`
         echo "Master WAL is Directory \"$MST_WAL_DIR\".....ok" &>>$LOG_FILE
 	WS=1
 elif [ "$W" == "l" ]; then
-        MST_WAL_DIR=`ssh -T -p $SSHPORT root@$1 su - $MST_SVC_USR -c \"ls -ld $MST_DATA_DIR/pg_xlog\" | awk '{print $11}'`
-        echo "Master WAL is Link file \"pg_xlog -> $MST_WAL_DIR\".....ok" &>>$LOG_FILE
+        MST_WAL_DIR=`ssh -T -p $SSHPORT root@$1 su - $MST_SVC_USR -c \"ls -ld $MST_DATA_DIR/pg_${REXL}\" | awk '{print $11}'`
+        echo "Master WAL is Link file \"pg_${REXL} -> $MST_WAL_DIR\".....ok" &>>$LOG_FILE
 else
         echo "Can't find WAL directory, You should check Master's WAL directory is really exisit." &>>$LOG_FILE
 	hbabye $UT $TEMP3 $MST_REP_USR $MST_DATA_DIR $1 $MST_SVC_USR $LOG_FILE
@@ -391,21 +402,21 @@ echo "Master Database Server's LOG directory check..." &>>$LOG_FILE
 C=`ssh -T -p $SSHPORT root@$1 su - $MST_SVC_USR -c \"psql -U $MST_DB_SPR_USR -t -c \'show logging_collector\;\' \" |cut -c 2-;`
 L=`ssh -T -p $SSHPORT root@$1 su - $MST_SVC_USR -c \"psql -U $MST_DB_SPR_USR -t -c \'show log_directory\;\' \" |cut -c 2-;`
 if [ "$C" == "on" ]; then
-        if [ "$L" == "pg_log" ]; then
-                LL=`ssh -T -p $SSHPORT root@$1 su - $MST_SVC_USR -c \"ls -ld $MST_DATA_DIR/pg_log \" |cut -c 1`
+        if [ "$L" == "$LOGD" ]; then
+                LL=`ssh -T -p $SSHPORT root@$1 su - $MST_SVC_USR -c \"ls -ld $MST_DATA_DIR/$LOGD \" |cut -c 1`
                 if [ "$LL" == "d" ]; then
                         MST_LOG_DIR="$MST_DATA_DIR/$L"
                         echo "Master LOG is Directory file $MST_LOG_DIR.....ok" &>>$LOG_FILE
                 elif [ "$LL" == "l" ]; then
-                        MST_LOG_DIR=`ssh -T -p $SSHPORT root@$1 su - $MST_SVC_USR -c \"ls -ld $MST_DATA_DIR/pg_log\" | awk '{print $11}'`
-                        echo "Master LOG is Link file \"pg_log -> $MST_LOG_DIR\".....ok" &>>$LOG_FILE
+                        MST_LOG_DIR=`ssh -T -p $SSHPORT root@$1 su - $MST_SVC_USR -c \"ls -ld $MST_DATA_DIR/$LOGD\" | awk '{print $11}'`
+                        echo "Master LOG is Link file \"$LOGD -> $MST_LOG_DIR\".....ok" &>>$LOG_FILE
                 else
                         echo "LOG directory is NOT exist Check your Master DB server's LOG directory" &>>$LOG_FILE
 			hbabye $UT $TEMP3 $MST_REP_USR $MST_DATA_DIR $1 $MST_SVC_USR $LOG_FILE
                 fi
         else
                 MST_LOG_DIR=$L
-                echo "Master LOG is Link file \"pg_log -> $MST_LOG_DIR\".....ok" &>>$LOG_FILE
+                echo "Master LOG is Link file \"$LOGD -> $MST_LOG_DIR\".....ok" &>>$LOG_FILE
         fi
 elif [ "$C" == "off" ]; then
         MST_LOG_DIR=off
@@ -736,9 +747,9 @@ if [ "$BACKUP" == "y" ];then
 		su - $SLV_SVC_USR -c "rm -rf $OSLV_ARCH_DIR/0000*" &>/dev/null
 	fi 
 
-	su - $SLV_SVC_USR -c "cp -a $OSLV_DATA_DIR/PG_VERSION $OSLV_DATA_DIR/base $OSLV_DATA_DIR/global $OSLV_DATA_DIR/pg_commit_ts $OSLV_DATA_DIR/pg_hba.conf $OSLV_DATA_DIR/pg_logical $OSLV_DATA_DIR/pg_notify $OSLV_DATA_DIR/pg_serial $OSLV_DATA_DIR/pg_stat $OSLV_DATA_DIR/pg_subtrans $OSLV_DATA_DIR/pg_twophase $OSLV_DATA_DIR/postgresql.auto.conf $OSLV_DATA_DIR/postmaster.opts $OSLV_DATA_DIR/backup_label.old $OSLV_DATA_DIR/pg_clog $OSLV_DATA_DIR/pg_dynshmem $OSLV_DATA_DIR/pg_ident.conf $OSLV_DATA_DIR/pg_multixact $OSLV_DATA_DIR/pg_replslot $OSLV_DATA_DIR/pg_snapshots $OSLV_DATA_DIR/pg_stat_tmp $OSLV_DATA_DIR/pg_tblspc $OSLV_DATA_DIR/postgresql.conf $OSLV_DATA_DIR/recovery.conf $BACKUP_DIR/DATA/" &>/dev/null
+	su - $SLV_SVC_USR -c "cp -a $OSLV_DATA_DIR/PG_VERSION $OSLV_DATA_DIR/base $OSLV_DATA_DIR/global $OSLV_DATA_DIR/pg_commit_ts $OSLV_DATA_DIR/pg_hba.conf $OSLV_DATA_DIR/logical $OSLV_DATA_DIR/pg_notify $OSLV_DATA_DIR/pg_serial $OSLV_DATA_DIR/pg_stat $OSLV_DATA_DIR/pg_subtrans $OSLV_DATA_DIR/pg_twophase $OSLV_DATA_DIR/postgresql.auto.conf $OSLV_DATA_DIR/postmaster.opts $OSLV_DATA_DIR/backup_label.old $OSLV_DATA_DIR/pg_clog $OSLV_DATA_DIR/pg_dynshmem $OSLV_DATA_DIR/pg_ident.conf $OSLV_DATA_DIR/pg_multixact $OSLV_DATA_DIR/pg_replslot $OSLV_DATA_DIR/pg_snapshots $OSLV_DATA_DIR/pg_stat_tmp $OSLV_DATA_DIR/pg_tblspc $OSLV_DATA_DIR/postgresql.conf $OSLV_DATA_DIR/recovery.conf $BACKUP_DIR/DATA/" &>/dev/null
 	if [ $? -eq 0 ]; then
-		su - $SLV_SVC_USR -c "rm -rf $OSLV_DATA_DIR/PG_VERSION $OSLV_DATA_DIR/base $OSLV_DATA_DIR/global $OSLV_DATA_DIR/pg_commit_ts $OSLV_DATA_DIR/pg_hba.conf $OSLV_DATA_DIR/pg_logical $OSLV_DATA_DIR/pg_notify $OSLV_DATA_DIR/pg_serial $OSLV_DATA_DIR/pg_stat $OSLV_DATA_DIR/pg_subtrans $OSLV_DATA_DIR/pg_twophase $OSLV_DATA_DIR/postgresql.auto.conf $OSLV_DATA_DIR/postmaster.opts $OSLV_DATA_DIR/backup_label.old $OSLV_DATA_DIR/pg_clog $OSLV_DATA_DIR/pg_dynshmem $OSLV_DATA_DIR/pg_ident.conf $OSLV_DATA_DIR/pg_multixact $OSLV_DATA_DIR/pg_replslot $OSLV_DATA_DIR/pg_snapshots $OSLV_DATA_DIR/pg_stat_tmp $OSLV_DATA_DIR/pg_tblspc $OSLV_DATA_DIR/postgresql.conf $OSLV_DATA_DIR/recovery.conf $OSLV_DATA_DIR/pg_xlog" &>/dev/null
+		su - $SLV_SVC_USR -c "rm -rf $OSLV_DATA_DIR/PG_VERSION $OSLV_DATA_DIR/base $OSLV_DATA_DIR/global $OSLV_DATA_DIR/pg_commit_ts $OSLV_DATA_DIR/pg_hba.conf $OSLV_DATA_DIR/logical $OSLV_DATA_DIR/pg_notify $OSLV_DATA_DIR/pg_serial $OSLV_DATA_DIR/pg_stat $OSLV_DATA_DIR/pg_subtrans $OSLV_DATA_DIR/pg_twophase $OSLV_DATA_DIR/postgresql.auto.conf $OSLV_DATA_DIR/postmaster.opts $OSLV_DATA_DIR/backup_label.old $OSLV_DATA_DIR/pg_clog $OSLV_DATA_DIR/pg_dynshmem $OSLV_DATA_DIR/pg_ident.conf $OSLV_DATA_DIR/pg_multixact $OSLV_DATA_DIR/pg_replslot $OSLV_DATA_DIR/pg_snapshots $OSLV_DATA_DIR/pg_stat_tmp $OSLV_DATA_DIR/pg_tblspc $OSLV_DATA_DIR/postgresql.conf $OSLV_DATA_DIR/recovery.conf $OSLV_DATA_DIR/pg_${REXL}" &>/dev/null
 	fi 
 elif [ $BACKUP == n ]; then
 	echo "You choice that DO not Backup Old DATA" &>>$LOG_FILE
@@ -804,15 +815,17 @@ elif [ "$MSTSLVEQ" == "n" ]; then
 	TEMP=/tmp/temp$(date +%Y%m%d%H%M%S).sh
 	touch $TEMP
 cat > $TEMP <<EOFF
-`ssh -T -p $SSHPORT root@$1 ls -l $MST_DATA_DIR/pg_tblspc/|awk '{print "p"$9"="$11}' | tail -n +2`
+`ssh -T -p $SSHPORT root@$1 ls -l $MST_DATA_DIR/pg_tblspc/|awk '{print "p"$(NF-2)"="$NF}' | tail -n +2`
 `ssh -T -p $SSHPORT root@$1 su - $MST_SVC_USR -c \"oid2name -s -p $MST_PORT\" |awk '{print $2"=$p"$1}'| grep -v pg_default | grep -v pg_global | tail -n +4`
 YAHO="`echo $TBLSTT`"
 EOFF
 	source $TEMP
-fi	
-Y=`ssh -T -p $SSHPORT root@$1 su - $MST_SVC_USR -c \"find $MST_ENGN_HOME -name recovery.conf*\"`
-ssh -T -p $SSHPORT root@$1 cp $Y $MST_DATA_DIR/recovery.conf
-ssh -T -p $SSHPORT root@$1 "chown -R $MST_SVC_USR. $MST_DATA_DIR/recovery.conf"
+fi
+if [ "12" -gt "$VRSN" ]; then
+	Y=`ssh -T -p $SSHPORT root@$1 su - $MST_SVC_USR -c \"find $MST_ENGN_HOME -name recovery.conf*\"`
+	ssh -T -p $SSHPORT root@$1 cp $Y $MST_DATA_DIR/recovery.conf
+	ssh -T -p $SSHPORT root@$1 "chown -R $MST_SVC_USR. $MST_DATA_DIR/recovery.conf"
+fi
 
 
 
@@ -826,15 +839,15 @@ rm -rf $SLV_DATA_DIR/*
 if [ "$WS" == "1" ]; then
 	XLOGDIR=""
 else
-	XLOGDIR="--xlogdir $SLV_WAL_DIR"
+	XLOGDIR="--${REXL}dir $SLV_WAL_DIR"
 fi
-su - $SLV_SVC_USR -c "pg_basebackup $YAHO -h $1 -p $MST_PORT -P -D $SLV_DATA_DIR -X stream --xlogdir $SLV_WAL_DIR -U $MST_REP_USR"
+su - $SLV_SVC_USR -c "pg_basebackup $YAHO -h $1 -p $MST_PORT -P -D $SLV_DATA_DIR -X stream --${REXL}dir $SLV_WAL_DIR -U $MST_REP_USR"
 ET=`date +%s`
 ETS=`date` 
-EST=`echo "$ET - $ST" | bc`
-HT=`echo "$EST/3600" | bc` 
-MT=`echo "($EST/60) - ($HT * 60)" | bc` 
-sT=`echo "$EST - (($EST/60) * 60)" | bc` 
+EST=`echo $ET $ST | awk '{print $1-$2}'`
+HT=`echo $EST| awk '{print $1/3600}'`
+MT=`echo $EST $HT| awk '{print ($1/60)-($2*60)}'` 
+sT=`echo $EST $EST | awk '{print $1-(($2/60)*60)}'`
 echo "End time   : $ETS" &>>$LOG_FILE
 echo "Total time : ${HT}hour ${MT}minute ${sT}secound" &>>$LOG_FILE
 echo "================================================" &>>$LOG_FILE
@@ -851,20 +864,20 @@ chmod 700 $SLV_WAL_DIR/0000*
 if [ "$SLV_LOG_DIR" != "off" ]; then
 	echo "logging_collector = on" >> $SLV_DATA_DIR/postgresql.conf
 	echo "log_directory = '$SLV_LOG_DIR'" >> $SLV_DATA_DIR/postgresql.conf
-	if [ "$SLV_LOG_DIR" == "$SLV_DATA_DIR/pg_log" -a "$SLV_LOG_DIR" = "pg_log" ]; then
-		rm -rf $SLV_DATA_DIR/pg_log
-		mkdir -p $SLV_DATA_DIR/pg_log
-		chown -R $SLV_SVC_USR. $SLV_DATA_DIR/pg_log
+	if [ "$SLV_LOG_DIR" == "$SLV_DATA_DIR/${LOGD}" -a "$SLV_LOG_DIR" = "$LOGD" ]; then
+		rm -rf $SLV_DATA_DIR/${LOGD}
+		mkdir -p $SLV_DATA_DIR/${LOGD}
+		chown -R $SLV_SVC_USR. $SLV_DATA_DIR/${LOGD}
 	else 
 		mkdir -p $TEMP4/LOG
 		cp -a $SLV_LOG_DIR/lost+found $TEMP4/LOG &>/dev/null
 		rm -rf $SLV_LOG_DIR/lost+found &>/dev/null
 		rm -rf $SLV_LOG_DIR &>/dev/null
-		rm -rf $SLV_DATA_DIR/pg_log
+		rm -rf $SLV_DATA_DIR/${LOGD}
 		mkdir -p $SLV_LOG_DIR
 		chmod -R 700 $SLV_LOG_DIR
 		chown -R $SLV_SVC_USR. $SLV_LOG_DIR
-		ln -s $SLV_LOG_DIR $SLV_DATA_DIR/pg_log
+		ln -s $SLV_LOG_DIR $SLV_DATA_DIR/${LOGD}
 		cp -a $TEMP4/LOG/* $SLV_LOG_DIR &>/dev/null
 	fi
 elif [ "$SLV_LOG_DIR" == "off" ]; then
@@ -880,25 +893,38 @@ if [ "$SLV_ARCH_DIR" != "off" ]; then
 	chown -R $SLV_SVC_USR. $SLV_ARCH_DIR
 	echo "archive_command = 'cp %p $SLV_ARCH_DIR/%f'" >> $SLV_DATA_DIR/postgresql.conf
 	su - $SLV_SVC_USR -c "mv $SLV_WAL_DIR/0000* $SLV_ARCH_DIR/"
-	chmod 600 $SLV_ARCH_DIR/*
+	ls $SLV_ARCH_DIR/* &>/dev/null
+	if [ "$?" = "0" ]; then
+		chmod 600 $SLV_ARCH_DIR/*
+	fi
 elif [ "$SLV_ARCH_DIR" == "off" ]; then
 	$SLV_ARCH_DIR=$SLV_WAL_DIR
 	echo "archive_mode = off" >> $SLV_DATA_DIR/postgresql.conf
 fi
 echo "port = $SLV_PORT" >> $SLV_DATA_DIR/postgresql.conf
 
-echo "standby_mode = on" >> $SLV_DATA_DIR/recovery.conf
-echo "primary_conninfo = 'host=$1 port=$MST_PORT user=$MST_REP_USR password=$MST_REP_PWD'">> $SLV_DATA_DIR/recovery.conf
-echo "restore_command='cp $SLV_ARCH_DIR/%f %p'">> $SLV_DATA_DIR/recovery.conf
-echo "trigger_file='$SLV_DATA_DIR/trigger.pg.5444'">> $SLV_DATA_DIR/recovery.conf
-echo "recovery_target_timeline = 'latest'">> $SLV_DATA_DIR/recovery.conf
+
+if [ "12" -gt "$VRSN" ]; then
+	echo "standby_mode = on" >> $SLV_DATA_DIR/recovery.conf
+	echo "primary_conninfo = 'host=$1 port=$MST_PORT user=$MST_REP_USR password=$MST_REP_PWD'">> $SLV_DATA_DIR/recovery.conf
+	$SLV_ARCH_DIR
+	echo "restore_command='cp $SLV_ARCH_DIR/%f %p'">> $SLV_DATA_DIR/recovery.conf
+	echo "trigger_file='$SLV_DATA_DIR/trigger.pg.5444'">> $SLV_DATA_DIR/recovery.conf
+	echo "recovery_target_timeline = 'latest'">> $SLV_DATA_DIR/recovery.conf
+else
+	echo "primary_conninfo = 'host=$1 port=$MST_PORT user=$MST_REP_USR password=$MST_REP_PWD'">> $SLV_DATA_DIR/postgresql.conf
+	echo "restore_command='cp $SLV_ARCH_DIR/%f %p'">> $SLV_DATA_DIR/postgresql.conf
+	echo "promote_trigger_file='$SLV_DATA_DIR/trigger.pg.5444'">> $SLV_DATA_DIR/postgresql.conf
+	echo "recovery_target_timeline = 'latest'">> $SLV_DATA_DIR/postgresql.conf
+	touch $SLV_DATA_DIR/standby.signal
+fi
 chown -R $SLV_SVC_USR. $SLV_DATA_DIR
 
  
  
 #STEP.8 WAL file move
 
-R=`ssh -T -p $SSHPORT root@$1 su - $MST_SVC_USR -c \" ls -rtl $MST_ARCH_DIR/*backup \| tail -n 1\" | awk '{print $9}'`
+R=`ssh -T -p $SSHPORT root@$1 su - $MST_SVC_USR -c \" ls -rtl $MST_ARCH_DIR/*backup \| tail -n 1\" | awk '{print $NF}'`
 R=`ssh -T -p $SSHPORT root@$1 su - $MST_SVC_USR -c \"cat $R\" | head -n 2 | tail -n 1 |rev|cut -d' ' -f1 |rev`
 R=`echo ${R%)*}`
 TEMP=ARCH$(date +%Y%m%d%H%M%S)
@@ -962,5 +988,4 @@ sed -i ''$UT'd' ./parameter.sh
 sed -i ''$UT'd' ./parameter.sh
 sed -i ''$UT'd' ./parameter.sh
 sed -i ''$UT' i\OSLV_DATA_DIR='$SLV_DATA_DIR'\nOSLV_WAL_DIR='$SLV_WAL_DIR'\nOSLV_ARCH_DIR='$SLV_ARCH_DIR'\nOSLV_LOG_DIR='$SLV_LOG_DIR'' ./parameter.sh
-
 exit 0
