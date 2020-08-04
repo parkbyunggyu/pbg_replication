@@ -36,29 +36,23 @@ MSTSLVEQ=y
 # If you choice 'y',
 # You need set "OLD SLAVE CONFIGURATION"
 # It will be BACKUP to BACKUP_DIR( parameter value ) OLD DB server
-
 BACKUP=n
 
 # Set the log file
-
 LOG_FILE=./bkbspark$(date +%Y%m%d%H%M%S).log
 
 #######################---MASTER CONFIGURATION---########################
-
 MST_DATA_DIR=/DATA
 MST_DB_SPR_USR=postgres
 MST_REP_USR=repuser
 MST_REP_PWD=edb
-
 #######################---SLAVE CONFIGURATION---#########################
-
 SLV_SVC_USR=pg12
 SLV_PORT=5432
 SLV_DATA_DIR=/DATA
 SLV_WAL_DIR=/WAL
 SLV_ARCH_DIR=/ARCH
 SLV_LOG_DIR=/DATA/log
-
 #######################------TBS list START-------#######################
 tbs2=/TBS/tbs2
 tbs1=/TBS/tbs1
@@ -68,12 +62,10 @@ tbs5=/TBS/tbs5
 #######################-------TBS list END--------#######################
 
 ######################---OLD SLAVE CONFIGURATION---######################
-
 BACKUP_DIR=$SLV_DATA_DIR/../DATA_CPY
 OSLV_DATA_DIR=/ARCHIVE/POSTGRES/DATA
 OSLV_WAL_DIR=/ARCHIVE/POSTGRES/WAL
 OSLV_ARCH_DIR=/ARCHIVE/POSTGRES/ARCHIVE
 OSLV_LOG_DIR=/ARCHIVE/POSTGRES/LOG
-
 #########################################################################
 
