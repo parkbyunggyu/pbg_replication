@@ -30,14 +30,14 @@
 # You don't need set "SLAVE CONFIGURATION" & "TABLESPACE LIST"
 # It will be create as all same with Master DB server
 SSHPORT=22
-MSTSLVEQ=n
+MSTSLVEQ=y
 
 # Do you want old Slave data backup?  'y' or 'n'
 # If you choice 'y',
 # You need set "OLD SLAVE CONFIGURATION"
 # It will be BACKUP to BACKUP_DIR( parameter value ) OLD DB server
 
-BACKUP=y
+BACKUP=n
 
 # Set the log file
 
@@ -45,25 +45,26 @@ LOG_FILE=./bkbspark$(date +%Y%m%d%H%M%S).log
 
 #######################---MASTER CONFIGURATION---########################
 
-MST_DATA_DIR=/ARCHIVE/POSTGRES/DATA
-MST_DB_SPR_USR=ttsystem
+MST_DATA_DIR=/DATA
+MST_DB_SPR_USR=postgres
 MST_REP_USR=repuser
 MST_REP_PWD=edb
 
 #######################---SLAVE CONFIGURATION---#########################
 
-SLV_SVC_USR=pg52
-SLV_PORT=5423
-SLV_DATA_DIR=/ARCHIVE/POSTGRES/DATA
-SLV_WAL_DIR=/ARCHIVE/POSTGRES/WAL
-SLV_ARCH_DIR=/ARCHIVE/POSTGRES/ARCHIVE
-SLV_LOG_DIR=/ARCHIVE/POSTGRES/LOG
+SLV_SVC_USR=pg12
+SLV_PORT=5432
+SLV_DATA_DIR=/DATA
+SLV_WAL_DIR=/WAL
+SLV_ARCH_DIR=/ARCH
+SLV_LOG_DIR=/DATA/log
 
 #######################------TBS list START-------#######################
-
-tbs05=/ARCHIVE/BKBSPARK/TBS/tbs05
-tbs01=/ARCHIVE/BKBSPARK/TBS/tbs01
-
+tbs2=/TBS/tbs2
+tbs1=/TBS/tbs1
+tbs4=/TBS/tbs4
+tbs3=/TBS/tbs3
+tbs5=/TBS/tbs5
 #######################-------TBS list END--------#######################
 
 ######################---OLD SLAVE CONFIGURATION---######################
