@@ -112,11 +112,11 @@ printf "\n" &>>$LOG_FILE
 
 VER=`cat /etc/redhat-release | awk -F '.' '{print $1}' | awk '{print $NF}'`
 if [ "$VER" = "7" ]; then
-	NETTT=ens
+	NETTT=en
 else
 	NETTT=eth
 fi
-REAL_IP1=`ip addr | grep $NETTT | awk '{print $2}' | awk -F '/' '{print $1}' | grep -v $NETTT`
+REAL_IP1=`ip addr | grep $NETTT | awk '{print $2}' | grep "/" | awk -F '/' '{print $1}' | grep -v $NETTT`
 echo yes|sh "./sshUserSetup.sh" -user root -hosts "${REAL_IP1}:${SSHPORT} $2:${SSHPORT}" -noPromptPassphrase -advanced
 echo yes|sh "./sshUserSetup.sh" -user $SLV_SVC_USR -hosts "${REAL_IP1}:${SSHPORT} $2:${SSHPORT}" -noPromptPassphrase -advanced
 
