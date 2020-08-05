@@ -117,8 +117,8 @@ else
 	NETTT=eth
 fi
 REAL_IP1=`ip addr | grep $NETTT | awk '{print $2}' | grep "/" | awk -F '/' '{print $1}' | grep -v $NETTT`
-echo yes|sh "./sshUserSetup.sh" -user root -hosts "${REAL_IP1}:${SSHPORT} $2:${SSHPORT}" -noPromptPassphrase -advanced
-echo yes|sh "./sshUserSetup.sh" -user $SLV_SVC_USR -hosts "${REAL_IP1}:${SSHPORT} $2:${SSHPORT}" -noPromptPassphrase -advanced
+echo yes|sh "./sshUserSetup.sh" -user root -hosts "${REAL_IP1}:${SSHPORT} $1:${SSHPORT}" -noPromptPassphrase -advanced
+echo yes|sh "./sshUserSetup.sh" -user $SLV_SVC_USR -hosts "${REAL_IP1}:${SSHPORT} $1:${SSHPORT}" -noPromptPassphrase -advanced
 
 ########################################---MASTER DB SERVER OWNER & AUTHORIZATION CHECK---#########################################
 
